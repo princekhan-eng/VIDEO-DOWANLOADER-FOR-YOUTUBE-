@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UltraTube 4K Studio | YouTube 4K Ultra-HD Video & Audio Downloader</title>
+  <meta name="description" content="Download YouTube videos in true 4K UHD (2160p), 2K (1440p), 1080p 60fps, and MP3 320kbps audio with instant FFmpeg stream merging and real-time speed tracking.">
+  
+  <!-- Google Fonts: Outfit & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Background Glow & Grid Canvas -->
+  <div class="background-effects">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="container nav-container">
+      <div class="brand">
+        <div class="logo-icon">
+          <i class="fa-brands fa-youtube"></i>
+          <span class="badge-4k-logo">4K</span>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">UltraTube <span class="accent-gradient">4K</span></span>
+          <span class="brand-sub">STUDIO PRO</span>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <button id="btn-open-folder" class="btn btn-secondary btn-sm" title="Open Downloads Folder on PC">
+          <i class="fa-regular fa-folder-open"></i>
+          <span>Open Folder</span>
+        </button>
+        <div class="status-indicator" title="FFmpeg & yt-dlp Engine Connected">
+          <span class="pulse-dot"></span>
+          <span class="status-text">Engine Ready (4K)</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="container main-content">
+    
+    <!-- Hero Section -->
+    <section class="hero-section">
+      <div class="hero-badge">
+        <i class="fa-solid fa-bolt"></i>
+        <span>Lossless 4K UHD &bull; 60 FPS &bull; MP3 320K</span>
+      </div>
+      <h1 class="hero-title">
+        Download YouTube Videos in <span class="gradient-text">True 4K Quality</span>
+      </h1>
+      <p class="hero-subtitle">
+        High-speed stream merger powered by FFmpeg. Save 2160p 4K, 1440p 2K, 1080p 60fps, and master audio directly to your device.
+      </p>
+
+      <!-- URL Input Glass Box -->
+      <div class="search-box-card">
+        <form id="analyze-form" class="search-form">
+          <div class="input-wrapper">
+            <i class="fa-solid fa-link input-icon"></i>
+            <input 
+              type="text" 
+              id="input-url" 
+              placeholder="Paste YouTube video or playlist link (e.g. https://www.youtube.com/watch?v=...)" 
+              autocomplete="off"
+              required
+            >
+            <button type="button" id="btn-paste" class="btn-icon-inside" title="Paste from Clipboard">
+              <i class="fa-regular fa-clipboard"></i>
+              <span>Paste</span>
+            </button>
+            <button type="button" id="btn-clear" class="btn-clear hidden" title="Clear input">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <button type="submit" id="btn-analyze" class="btn btn-primary btn-glow">
+            <span class="btn-text">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>Analyze Media</span>
+            </span>
+            <span class="spinner hidden">
+              <i class="fa-solid fa-circle-notch fa-spin"></i>
+            </span>
+          </button>
+        </form>
+
+        <!-- Quick Sample Suggestions -->
+        <div class="quick-samples">
+          <span class="samples-label">Quick Test:</span>
+          <button class="sample-tag" data-url="https://www.youtube.com/watch?v=LXb3EKWsInQ">
+            <i class="fa-solid fa-mountain-sun"></i> 4K Costa Rica HDR
+          </button>
+          <button class="sample-tag" data-url="https://www.youtube.com/watch?v=Bey4XXJAqS8">
+            <i class="fa-solid fa-music"></i> 4K Music Video
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Error Banner -->
+    <div id="error-banner" class="error-banner hidden">
+      <div class="error-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+      <div class="error-content">
+        <h4 id="error-title">Analysis Failed</h4>
+        <p id="error-message">Please ensure the YouTube link is valid and public.</p>
+      </div>
+      <button id="btn-close-error" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <!-- Video Analysis Result Card (Single Video) -->
+    <section id="media-card" class="media-card glass-panel hidden">
+      <div class="media-grid">
+        <!-- Thumbnail & Metadata Left Column -->
+        <div class="media-preview-col">
+          <div class="thumbnail-wrapper">
+            <img id="video-thumbnail" src="" alt="Video Thumbnail" class="video-thumbnail">
+            <div id="badge-duration" class="duration-badge">00:00</div>
+            <div id="badge-max-res" class="max-res-badge">4K UHD</div>
+          </div>
+          <div class="video-meta-details">
+            <h2 id="video-title" class="video-title">Video Title Loading...</h2>
+            <div class="meta-row">
+              <span class="meta-item"><i class="fa-solid fa-user"></i> <span id="video-channel">Channel</span></span>
+              <span class="meta-item"><i class="fa-solid fa-eye"></i> <span id="video-views">0 views</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Format Matrix Right Column -->
+        <div class="format-selection-col">
+          <div class="format-tabs-header">
+            <button id="tab-video" class="format-tab active" data-tab="video">
+              <i class="fa-solid fa-video"></i> Video Formats (4K / HD)
+            </button>
+            <button id="tab-audio" class="format-tab" data-tab="audio">
+              <i class="fa-solid fa-headphones"></i> Audio Extraction (MP3)
+            </button>
+          </div>
+
+          <!-- Video Options Tab Pane -->
+          <div id="pane-video" class="tab-pane active">
+            <div class="format-grid" id="video-formats-grid">
+              <!-- Dynamically populated video cards -->
+            </div>
+          </div>
+
+          <!-- Audio Options Tab Pane -->
+          <div id="pane-audio" class="tab-pane">
+            <div class="format-grid" id="audio-formats-grid">
+              <!-- Dynamically populated audio cards -->
+            </div>
+          </div>
+
+          <!-- Selected Format Action Card -->
+          <div class="download-action-bar">
+            <div class="selected-summary">
+              <div class="selected-badge" id="selected-badge">4K UHD</div>
+              <div class="selected-info">
+                <span class="selected-name" id="selected-name">4K Ultra-HD (2160p)</span>
+                <span class="selected-desc" id="selected-desc">Lossless 60fps video + Audio Stream</span>
+              </div>
+            </div>
+            <button id="btn-start-download" class="btn btn-download-primary btn-glow">
+              <i class="fa-solid fa-cloud-arrow-down"></i>
+              <span>Download Selected</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Playlist Result Card -->
+    <section id="playlist-card" class="playlist-card glass-panel hidden">
+      <div class="playlist-header">
+        <div class="playlist-info">
+          <div class="playlist-icon"><i class="fa-solid fa-list-check"></i></div>
+          <div>
+            <h2 id="playlist-title" class="playlist-title">Playlist Title</h2>
+            <p id="playlist-count" class="playlist-meta">0 Videos found in playlist</p>
+          </div>
+        </div>
+        <div class="playlist-actions">
+          <button id="btn-batch-4k" class="btn btn-primary btn-sm">
+            <i class="fa-solid fa-bolt"></i> Download All (Best 4K)
+          </button>
+        </div>
+      </div>
+      <div class="playlist-items-list" id="playlist-items-list">
+        <!-- Dynamically rendered playlist items -->
+      </div>
+    </section>
+
+    <!-- Active Live Download Progress Monitor -->
+    <section id="progress-card" class="progress-card glass-panel hidden">
+      <div class="progress-card-header">
+        <div class="live-pulse-badge">
+          <span class="live-dot"></span>
+          <span>DOWNLOADING MEDIA</span>
+        </div>
+        <span id="progress-stage" class="progress-stage-text">Initializing stream merger...</span>
+      </div>
+
+      <!-- Main Progress Bar -->
+      <div class="progress-track">
+        <div id="progress-bar-fill" class="progress-bar-fill" style="width: 0%;">
+          <div class="progress-glow-tip"></div>
+        </div>
+      </div>
+
+      <!-- Telemetry Stats Grid -->
+      <div class="telemetry-grid">
+        <div class="stat-card">
+          <span class="stat-label">Progress</span>
+          <span id="stat-percent" class="stat-value">0%</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Download Speed</span>
+          <span id="stat-speed" class="stat-value highlight-cyan">-- MB/s</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Time Remaining</span>
+          <span id="stat-eta" class="stat-value highlight-purple">--</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Downloaded Size</span>
+          <span id="stat-size" class="stat-value">0 MB / --</span>
+        </div>
+      </div>
+
+      <!-- Completed Action Bar (Revealed on 100%) -->
+      <div id="completed-actions" class="completed-actions hidden">
+        <div class="success-message">
+          <i class="fa-solid fa-circle-check"></i>
+          <span>Download Complete &amp; Merged Successfully!</span>
+        </div>
+        <div class="completed-buttons">
+          <a id="btn-browser-download" href="#" class="btn btn-success" download>
+            <i class="fa-solid fa-download"></i> Save File to Browser
+          </a>
+          <button id="btn-open-folder-completed" class="btn btn-secondary">
+            <i class="fa-regular fa-folder-open"></i> Open in Windows Explorer
+          </button>
+          <button id="btn-download-another" class="btn btn-outline">
+            <i class="fa-solid fa-rotate-right"></i> Download Another
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features & Capabilities Banner -->
+    <section class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon feature-crimson"><i class="fa-solid fa-tv"></i></div>
+        <h3>True 4K UHD (2160p)</h3>
+        <p>Preserves full resolution up to 3840x2160 with 60fps high frame rate support.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon feature-purple"><i class="fa-solid fa-film"></i></div>
+        <h3>FFmpeg Stream Merger</h3>
+        <p>Combines discrete 4K video and high-bitrate audio streams into lossless MP4/MKV files.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon feature-amber"><i class="fa-solid fa-music"></i></div>
+        <h3>Studio MP3 Audio (320k)</h3>
+        <p>Extract pristine 320kbps MP3 or native lossless M4A AAC audio effortlessly.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon feature-teal"><i class="fa-solid fa-gauge-high"></i></div>
+        <h3>Ultra-Fast Multi-Threaded</h3>
+        <p>Accelerated multi-connection downloading with live real-time speed & ETA tracking.</p>
+      </div>
+    </section>
+
+    <!-- Download History Table -->
+    <section class="history-section glass-panel">
+      <div class="history-header">
+        <div class="history-title-wrap">
+          <i class="fa-solid fa-clock-rotate-left"></i>
+          <h2>Download Library</h2>
+        </div>
+        <button id="btn-refresh-history" class="btn btn-icon-small" title="Refresh history">
+          <i class="fa-solid fa-arrows-rotate"></i>
+        </button>
+      </div>
+
+      <div id="history-container" class="history-container">
+        <div class="history-empty" id="history-empty">
+          <i class="fa-regular fa-folder-open"></i>
+          <p>No downloads yet. Paste a link above to start downloading in 4K!</p>
+        </div>
+        <div class="history-list" id="history-list">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="/static/app.js"></script>
+</body>
+</html>
