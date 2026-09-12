@@ -1,4 +1,4 @@
-yt-dlp>=2026.8.19
+yt-dlp
 fastapi>=0.115.0
 uvicorn>=0.30.0
 websockets>=13.0

@@ -1,0 +1,8 @@
+.git
+.gitignore
+launch.bat
+downloads_history.json
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache

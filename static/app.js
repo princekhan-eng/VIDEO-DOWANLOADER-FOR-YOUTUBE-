@@ -361,33 +361,71 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // WebSocket Live Telemetry Connection
-  function connectProgressWebSocket(taskId) {
+  let progressPollTimer = null;
+
+  function stopProgressTracking() {
     if (activeWebSocket) {
-      activeWebSocket.close();
+      try { activeWebSocket.close(); } catch(e) {}
+      activeWebSocket = null;
     }
+    if (progressPollTimer) {
+      clearInterval(progressPollTimer);
+      progressPollTimer = null;
+    }
+  }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/progress/${taskId}`;
-
-    activeWebSocket = new WebSocket(wsUrl);
-
-    activeWebSocket.onmessage = (event) => {
+  function startPollingProgress(taskId) {
+    if (progressPollTimer) return;
+    progressPollTimer = setInterval(async () => {
       try {
-        const data = JSON.parse(event.data);
-        handleProgressUpdate(data);
-      } catch (e) {
-        console.error('Error parsing WS message:', e);
+        const res = await fetch(`/api/progress/${taskId}`);
+        if (res.ok) {
+          const data = await res.json();
+          handleProgressUpdate(data);
+          if (data.status === 'completed' || data.status === 'error') {
+            stopProgressTracking();
+          }
+        }
+      } catch (err) {
+        console.warn('Progress polling error:', err);
       }
-    };
+    }, 1000);
+  }
 
-    activeWebSocket.onerror = (err) => {
-      console.error('WebSocket Error:', err);
-    };
+  // WebSocket Live Telemetry Connection with Automatic HTTP Polling Fallback
+  function connectProgressWebSocket(taskId) {
+    stopProgressTracking();
 
-    activeWebSocket.onclose = () => {
-      console.log('WebSocket connection closed.');
-    };
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/ws/progress/${taskId}`;
+
+      activeWebSocket = new WebSocket(wsUrl);
+
+      activeWebSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleProgressUpdate(data);
+          if (data.status === 'completed' || data.status === 'error') {
+            stopProgressTracking();
+          }
+        } catch (e) {
+          console.error('Error parsing WS message:', e);
+        }
+      };
+
+      activeWebSocket.onerror = (err) => {
+        console.warn('WebSocket unavailable on host, falling back to HTTP polling:', err);
+        startPollingProgress(taskId);
+      };
+
+      activeWebSocket.onclose = () => {
+        // If closed prematurely and not finished, use polling
+        startPollingProgress(taskId);
+      };
+    } catch (e) {
+      startPollingProgress(taskId);
+    }
   }
 
   // Progress Update Handler
@@ -434,9 +472,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/open-folder', { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
-        showToast('Opened downloads folder in Windows Explorer.', 'success');
+        if (data.status === 'cloud' || data.status === 'info') {
+          showToast(data.message || 'Running on cloud server. Direct download is used.', 'info');
+        } else {
+          showToast('Opened downloads folder.', 'success');
+        }
       } else {
-        showToast(data.detail || 'Could not open folder.', 'error');
+        showToast(data.detail || data.message || 'Could not open folder.', 'error');
       }
     } catch (err) {
       showToast('Failed to trigger folder opening.', 'error');

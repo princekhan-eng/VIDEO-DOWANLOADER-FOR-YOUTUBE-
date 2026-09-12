@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*$py.class
+downloads_history.json
+.vercel/
+.env
+.DS_Store

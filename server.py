@@ -30,20 +30,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
+if (BASE_DIR / "static").exists():
+    STATIC_DIR = BASE_DIR / "static"
+elif (BASE_DIR.parent / "static").exists():
+    STATIC_DIR = BASE_DIR.parent / "static"
+    BASE_DIR = BASE_DIR.parent
+else:
+    STATIC_DIR = Path.cwd() / "static"
 
-DOWNLOADS_DIR = Path.home() / "Downloads" / "YouTube_4K_Downloads"
-DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
 
-HISTORY_FILE = BASE_DIR / "downloads_history.json"
+if IS_VERCEL:
+    DOWNLOADS_DIR = Path("/tmp") / "downloads"
+    HISTORY_FILE = Path("/tmp") / "downloads_history.json"
+else:
+    DOWNLOADS_DIR = Path.home() / "Downloads" / "YouTube_4K_Downloads"
+    HISTORY_FILE = BASE_DIR / "downloads_history.json"
 
-# Configure static FFmpeg location
-FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
-FFMPEG_DIR = os.path.dirname(FFMPEG_EXE)
-if FFMPEG_DIR not in os.environ.get("PATH", ""):
-    os.environ["PATH"] = FFMPEG_DIR + os.pathsep + os.environ.get("PATH", "")
+try:
+    DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+# Configure static FFmpeg location safely
+try:
+    FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
+    FFMPEG_DIR = os.path.dirname(FFMPEG_EXE)
+    if FFMPEG_DIR and FFMPEG_DIR not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = FFMPEG_DIR + os.pathsep + os.environ.get("PATH", "")
+except Exception as e:
+    FFMPEG_EXE = "ffmpeg"
 
 # In-memory download tasks and websocket clients
 active_tasks: Dict[str, Dict[str, Any]] = {}
@@ -615,6 +637,13 @@ async def websocket_progress(websocket: WebSocket, task_id: str):
             ws_connections[task_id].remove(websocket)
 
 
+@app.get("/api/progress/{task_id}")
+async def get_task_progress(task_id: str):
+    if task_id in active_tasks:
+        return active_tasks[task_id]
+    raise HTTPException(status_code=404, detail="Task not found or completed")
+
+
 @app.get("/api/history")
 async def get_history():
     return load_history()
@@ -625,8 +654,11 @@ async def delete_history_entry(entry_id: str):
     with history_lock:
         hist = load_history()
         updated = [h for h in hist if h.get("id") != entry_id]
-        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(updated, f, indent=2, ensure_ascii=False)
+        try:
+            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(updated, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
     return {"status": "deleted"}
 
 
@@ -644,6 +676,12 @@ async def download_file(filename: str):
 
 @app.post("/api/open-folder")
 async def open_downloads_folder():
+    if IS_VERCEL:
+        return {
+            "status": "cloud",
+            "message": "App is running in Cloud mode. Downloaded files are saved directly to your browser download folder.",
+            "folder": str(DOWNLOADS_DIR),
+        }
     try:
         if sys.platform == "win32":
             os.startfile(str(DOWNLOADS_DIR))
@@ -653,18 +691,28 @@ async def open_downloads_folder():
             subprocess.Popen(["xdg-open", str(DOWNLOADS_DIR)])
         return {"status": "success", "folder": str(DOWNLOADS_DIR)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "error", "message": str(e), "folder": str(DOWNLOADS_DIR)}
 
 
 # Mount static assets
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+elif (BASE_DIR / "static").exists():
+    app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
-    index_path = STATIC_DIR / "index.html"
-    if index_path.exists():
-        return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+    index_candidates = [
+        STATIC_DIR / "index.html",
+        BASE_DIR / "static" / "index.html",
+        Path.cwd() / "static" / "index.html",
+        Path(__file__).resolve().parent / "static" / "index.html",
+        Path(__file__).resolve().parent.parent / "static" / "index.html",
+    ]
+    for p in index_candidates:
+        if p.exists():
+            return HTMLResponse(content=p.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>UltraTube 4K Studio Starting...</h1>")
 
 
