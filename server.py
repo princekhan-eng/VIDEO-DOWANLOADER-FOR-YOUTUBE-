@@ -49,14 +49,54 @@ except Exception:
 if IS_VERCEL:
     DOWNLOADS_DIR = Path("/tmp") / "downloads"
     HISTORY_FILE = Path("/tmp") / "downloads_history.json"
+    COOKIES_FILE = Path("/tmp") / "cookies.txt"
 else:
     DOWNLOADS_DIR = Path.home() / "Downloads" / "YouTube_4K_Downloads"
     HISTORY_FILE = BASE_DIR / "downloads_history.json"
+    COOKIES_FILE = BASE_DIR / "cookies.txt"
 
 try:
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 except Exception:
     pass
+
+# Initialize Cookies from Environment Variable (for Vercel / Cloud / Docker)
+def init_cookies_from_env():
+    """Initializes cookies file from environment variables if present."""
+    cookies_content = (
+        os.environ.get("YOUTUBE_COOKIES_CONTENT")
+        or os.environ.get("YOUTUBE_COOKIES")
+        or os.environ.get("COOKIES_TEXT")
+    )
+    if not cookies_content:
+        b64_content = os.environ.get("YOUTUBE_COOKIES_BASE64")
+        if b64_content:
+            try:
+                import base64
+                cookies_content = base64.b64decode(b64_content).decode("utf-8")
+            except Exception:
+                pass
+    if cookies_content:
+        try:
+            with open(COOKIES_FILE, "w", encoding="utf-8") as f:
+                f.write(cookies_content.strip() + "\n")
+            print(f"[Anti-Bot] Loaded YouTube cookies from environment variable ({len(cookies_content)} bytes)")
+        except Exception as e:
+            print(f"[Anti-Bot] Warning: Could not write cookies file: {e}")
+
+init_cookies_from_env()
+
+def get_cookie_file_path() -> Optional[str]:
+    """Returns path to an active cookies file, or None if not configured."""
+    env_file = os.environ.get("YOUTUBE_COOKIES_FILE")
+    if env_file and os.path.exists(env_file):
+        return env_file
+    if COOKIES_FILE.exists() and COOKIES_FILE.stat().st_size > 0:
+        return str(COOKIES_FILE)
+    cwd_cookie = Path.cwd() / "cookies.txt"
+    if cwd_cookie.exists() and cwd_cookie.stat().st_size > 0:
+        return str(cwd_cookie)
+    return None
 
 # Configure static FFmpeg location safely
 try:
@@ -86,9 +126,7 @@ def load_history() -> List[Dict[str, Any]]:
 def save_history(entry: Dict[str, Any]):
     with history_lock:
         hist = load_history()
-        # Prepend new entry
         hist.insert(0, entry)
-        # Limit history to 100 entries
         hist = hist[:100]
         try:
             with open(HISTORY_FILE, "w", encoding="utf-8") as f:
@@ -117,6 +155,90 @@ def format_duration(seconds: Optional[int]) -> str:
     return f"{mins}:{secs:02d}"
 
 
+# Base yt-dlp configuration builder
+def get_ydl_base_opts(strategy: str = "default", is_download: bool = False) -> Dict[str, Any]:
+    cookie_path = get_cookie_file_path()
+
+    opts: Dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "ffmpeg_location": FFMPEG_EXE,
+        "js_runtimes": {"node": {}},
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Fetch-Mode": "navigate",
+        },
+        "retries": 10,
+        "fragment_retries": 10,
+        "file_access_retries": 5,
+        "windowsfilenames": True,
+    }
+
+    if cookie_path:
+        opts["cookiefile"] = cookie_path
+
+    # Configure strategy player clients
+    if strategy == "default":
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["visionos", "web", "mweb", "android", "ios"],
+            }
+        }
+    elif strategy == "mobile_fallback":
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb"],
+            }
+        }
+    elif strategy == "tv_fallback":
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["tv", "mweb"],
+            }
+        }
+    elif strategy == "web_safari":
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["web_safari", "android"],
+            }
+        }
+
+    return opts
+
+
+def extract_info_with_fallback(url: str, download: bool = False, custom_opts: Optional[dict] = None) -> Any:
+    """
+    Intelligently extracts info or downloads with multi-tier client fallback
+    to seamlessly handle bot challenges, rate-limits, and SABR streams.
+    """
+    strategies = ["default", "mobile_fallback", "tv_fallback", "web_safari"]
+    last_error = None
+
+    for strat in strategies:
+        opts = get_ydl_base_opts(strategy=strat, is_download=download)
+        if custom_opts:
+            opts.update(custom_opts)
+            if "extractor_args" in custom_opts:
+                opts["extractor_args"] = custom_opts["extractor_args"]
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=download)
+                if info:
+                    return info
+        except Exception as e:
+            last_error = e
+            err_str = str(e).lower()
+            if "not a valid url" in err_str or "video unavailable" in err_str or "private video" in err_str:
+                raise e
+            continue
+
+    if last_error:
+        raise last_error
+    raise Exception("Failed to fetch media info from YouTube.")
+
+
 # Request / Response Schemas
 class InfoRequest(BaseModel):
     url: str
@@ -127,6 +249,14 @@ class DownloadRequest(BaseModel):
     format_id: str = "4k"  # '4k', '2k', '1080p', '720p', '480p', '360p', 'mp3-320', 'mp3-192', 'm4a', 'wav'
     custom_title: Optional[str] = None
     playlist_item_index: Optional[int] = None
+
+
+class CookieSaveRequest(BaseModel):
+    cookies_text: str
+
+
+class CookieTestRequest(BaseModel):
+    url: Optional[str] = "https://www.youtube.com/watch?v=LXb3EKWsInQ"
 
 
 async def broadcast_progress(task_id: str, data: dict):
@@ -146,28 +276,119 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
 
+# =========================================================================
+# Cookie & Anti-Bot API Endpoints
+# =========================================================================
+@app.get("/api/cookies/status")
+async def get_cookies_status():
+    cookie_path = get_cookie_file_path()
+    has_cookies = cookie_path is not None and os.path.exists(cookie_path)
+    cookie_size = os.path.getsize(cookie_path) if has_cookies else 0
+    return {
+        "has_cookies": has_cookies,
+        "cookie_file": cookie_path if has_cookies else None,
+        "cookie_size_bytes": cookie_size,
+        "is_cloud": IS_VERCEL,
+        "status": "authenticated" if has_cookies else "ready_fallback",
+        "message": (
+            "YouTube Authentication Cookie is active (Anti-Bot Bypass enabled)."
+            if has_cookies
+            else "Using Multi-Client EJS Solver (No custom cookie active)."
+        ),
+    }
+
+
+@app.post("/api/cookies/save")
+async def save_cookies(req: CookieSaveRequest):
+    content = req.cookies_text.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Cookies content cannot be empty.")
+
+    try:
+        with open(COOKIES_FILE, "w", encoding="utf-8") as f:
+            f.write(content + "\n")
+        return {
+            "status": "success",
+            "message": "Cookies saved successfully! Anti-Bot authentication is now active.",
+            "file": str(COOKIES_FILE),
+            "size": len(content),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save cookies: {str(e)}")
+
+
+@app.post("/api/cookies/clear")
+async def clear_cookies():
+    try:
+        if COOKIES_FILE.exists():
+            COOKIES_FILE.unlink()
+        return {
+            "status": "success",
+            "message": "Cookies removed. Engine returned to default multi-client mode.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete cookies: {str(e)}")
+
+
+@app.post("/api/cookies/test")
+async def test_cookies(req: CookieTestRequest):
+    url = req.url.strip() if (req and req.url) else "https://www.youtube.com/watch?v=LXb3EKWsInQ"
+    try:
+        loop = asyncio.get_event_loop()
+        info = await loop.run_in_executor(
+            None, lambda: extract_info_with_fallback(url, download=False)
+        )
+        if not info:
+            return {"success": False, "error": "No media info returned"}
+
+        formats = info.get("formats", [])
+        heights = sorted(list(set(f.get("height") for f in formats if f.get("height"))))
+        return {
+            "success": True,
+            "title": info.get("title", "Video"),
+            "uploader": info.get("uploader") or info.get("channel"),
+            "formats_count": len(formats),
+            "max_resolution": f"{max(heights, default=0)}p",
+            "has_4k": max(heights, default=0) >= 2160,
+            "available_heights": heights,
+            "message": "Verification Successful! YouTube bot check passed seamlessly.",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Test failed: {str(e)}",
+        }
+
+
+# =========================================================================
+# Video Info Analysis Endpoint
+# =========================================================================
 @app.post("/api/info")
 async def get_video_info(req: InfoRequest):
     url = req.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL cannot be empty")
 
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "extract_flat": "in_playlist",
-        "ffmpeg_location": FFMPEG_EXE,
-        "js_runtimes": {"node": {}},
-    }
-
     try:
         loop = asyncio.get_event_loop()
         info = await loop.run_in_executor(
-            None, lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(url, download=False)
+            None,
+            lambda: extract_info_with_fallback(
+                url,
+                download=False,
+                custom_opts={"extract_flat": "in_playlist"},
+            ),
         )
     except Exception as e:
+        err_msg = str(e)
+        needs_cookies = "sign in to confirm" in err_msg.lower() or "bot" in err_msg.lower()
         raise HTTPException(
-            status_code=400, detail=f"Failed to fetch video information: {str(e)}"
+            status_code=400,
+            detail={
+                "message": f"Failed to fetch video information: {err_msg}",
+                "needs_cookies": needs_cookies,
+            },
         )
 
     if not info:
@@ -210,10 +431,8 @@ async def get_video_info(req: InfoRequest):
     has_1080p = False
     has_720p = False
 
-    available_video_resolutions = []
     heights_seen = set()
 
-    # Video heights inspect
     for f in formats:
         h = f.get("height")
         if h and h not in heights_seen and f.get("vcodec") != "none":
@@ -301,7 +520,7 @@ async def get_video_info(req: InfoRequest):
         "available": True,
     })
 
-    # 480p / 360p
+    # 480p
     presets.append({
         "id": "480p",
         "name": "480p Standard",
@@ -381,6 +600,9 @@ async def get_video_info(req: InfoRequest):
     }
 
 
+# =========================================================================
+# Download Worker with Robust Stream Processing
+# =========================================================================
 def download_worker(task_id: str, url: str, format_id: str, loop: asyncio.AbstractEventLoop):
     task = active_tasks[task_id]
 
@@ -424,26 +646,17 @@ def download_worker(task_id: str, url: str, format_id: str, loop: asyncio.Abstra
                 loop,
             )
 
-    # Configure yt-dlp format selector based on format_id
     out_template = str(DOWNLOADS_DIR / "%(title)s [%(id)s].%(ext)s")
-
     is_audio = format_id.startswith("mp3") or format_id in ["m4a", "wav", "flac"]
 
-    ydl_opts: Dict[str, Any] = {
+    custom_download_opts: Dict[str, Any] = {
         "outtmpl": out_template,
         "progress_hooks": [progress_hook],
-        "ffmpeg_location": FFMPEG_EXE,
-        "js_runtimes": {"node": {}},
-        "quiet": True,
-        "no_warnings": True,
-        "windowsfilenames": True,
-        "retries": 10,
-        "fragment_retries": 10,
     }
 
     if is_audio:
         if format_id == "mp3-320":
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestaudio/best",
                 "postprocessors": [
                     {
@@ -454,7 +667,7 @@ def download_worker(task_id: str, url: str, format_id: str, loop: asyncio.Abstra
                 ],
             })
         elif format_id == "mp3-192":
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestaudio/best",
                 "postprocessors": [
                     {
@@ -465,7 +678,7 @@ def download_worker(task_id: str, url: str, format_id: str, loop: asyncio.Abstra
                 ],
             })
         elif format_id == "wav":
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestaudio/best",
                 "postprocessors": [
                     {
@@ -475,7 +688,7 @@ def download_worker(task_id: str, url: str, format_id: str, loop: asyncio.Abstra
                 ],
             })
         else:  # m4a
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestaudio[ext=m4a]/bestaudio/best",
                 "postprocessors": [
                     {
@@ -487,92 +700,105 @@ def download_worker(task_id: str, url: str, format_id: str, loop: asyncio.Abstra
     else:
         # Video Formats
         if format_id == "4k":
-            # Best 4K (height <= 2160) + best audio
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestvideo[height<=2160]+bestaudio/best[height<=2160]/best",
                 "merge_output_format": "mp4",
             })
         elif format_id == "2k":
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestvideo[height<=1440]+bestaudio/best[height<=1440]/best",
                 "merge_output_format": "mp4",
             })
         elif format_id == "1080p":
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
                 "merge_output_format": "mp4",
             })
         elif format_id == "720p":
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
                 "merge_output_format": "mp4",
             })
         elif format_id == "480p":
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
                 "merge_output_format": "mp4",
             })
         else:
-            ydl_opts.update({
+            custom_download_opts.update({
                 "format": "bestvideo+bestaudio/best",
                 "merge_output_format": "mp4",
             })
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            task.update({
-                "status": "starting",
-                "stage": "Fetching media streams...",
-                "percent": 0.0,
-            })
-            asyncio.run_coroutine_threadsafe(
-                broadcast_progress(task_id, task),
-                loop,
-            )
+        task.update({
+            "status": "starting",
+            "stage": "Fetching media streams with anti-bot engine...",
+            "percent": 0.0,
+        })
+        asyncio.run_coroutine_threadsafe(
+            broadcast_progress(task_id, task),
+            loop,
+        )
 
-            info = ydl.extract_info(url, download=True)
-            if not info:
-                raise Exception("Failed to extract info for download")
+        info = extract_info_with_fallback(
+            url,
+            download=True,
+            custom_opts=custom_download_opts,
+        )
 
-            final_filepath = ydl.prepare_filename(info)
-            # Check if postprocessed extension changed (e.g. mp3/m4a/merged mp4)
-            if is_audio:
-                target_ext = "mp3" if "mp3" in format_id else ("wav" if format_id == "wav" else "m4a")
-                base, _ = os.path.splitext(final_filepath)
-                final_filepath = f"{base}.{target_ext}"
-            elif ydl_opts.get("merge_output_format"):
-                base, _ = os.path.splitext(final_filepath)
-                final_filepath = f"{base}.{ydl_opts['merge_output_format']}"
+        if not info:
+            raise Exception("Failed to extract info for download")
 
-            file_size_bytes = os.path.getsize(final_filepath) if os.path.exists(final_filepath) else 0
-            filename = os.path.basename(final_filepath)
+        # Determine output file path
+        with yt_dlp.YoutubeDL(custom_download_opts) as helper_ydl:
+            final_filepath = helper_ydl.prepare_filename(info)
 
-            history_entry = {
-                "id": str(uuid.uuid4()),
-                "title": info.get("title", filename),
-                "filename": filename,
-                "file_path": final_filepath,
-                "file_size": format_bytes(file_size_bytes),
-                "format": format_id.upper(),
-                "download_date": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "thumbnail": info.get("thumbnail"),
-                "duration": format_duration(info.get("duration")),
-            }
-            save_history(history_entry)
+        if is_audio:
+            target_ext = "mp3" if "mp3" in format_id else ("wav" if format_id == "wav" else "m4a")
+            base, _ = os.path.splitext(final_filepath)
+            final_filepath = f"{base}.{target_ext}"
+        elif custom_download_opts.get("merge_output_format"):
+            base, _ = os.path.splitext(final_filepath)
+            final_filepath = f"{base}.{custom_download_opts['merge_output_format']}"
 
-            task.update({
-                "status": "completed",
-                "percent": 100.0,
-                "stage": "Download & Merging Complete! Saved to Downloads.",
-                "file_path": final_filepath,
-                "filename": filename,
-                "file_size": format_bytes(file_size_bytes),
-                "download_url": f"/api/files/{filename}",
-            })
-            asyncio.run_coroutine_threadsafe(
-                broadcast_progress(task_id, task),
-                loop,
-            )
+        # If merged file not found under predicted name, search downloads dir
+        if not os.path.exists(final_filepath):
+            video_id = info.get("id", "")
+            for f in os.listdir(DOWNLOADS_DIR):
+                if video_id in f:
+                    final_filepath = str(DOWNLOADS_DIR / f)
+                    break
+
+        file_size_bytes = os.path.getsize(final_filepath) if os.path.exists(final_filepath) else 0
+        filename = os.path.basename(final_filepath)
+
+        history_entry = {
+            "id": str(uuid.uuid4()),
+            "title": info.get("title", filename),
+            "filename": filename,
+            "file_path": final_filepath,
+            "file_size": format_bytes(file_size_bytes),
+            "format": format_id.upper(),
+            "download_date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "thumbnail": info.get("thumbnail"),
+            "duration": format_duration(info.get("duration")),
+        }
+        save_history(history_entry)
+
+        task.update({
+            "status": "completed",
+            "percent": 100.0,
+            "stage": "Download & Merging Complete! Saved to Downloads.",
+            "file_path": final_filepath,
+            "filename": filename,
+            "file_size": format_bytes(file_size_bytes),
+            "download_url": f"/api/files/{filename}",
+        })
+        asyncio.run_coroutine_threadsafe(
+            broadcast_progress(task_id, task),
+            loop,
+        )
     except Exception as e:
         task.update({
             "status": "error",
@@ -624,13 +850,11 @@ async def websocket_progress(websocket: WebSocket, task_id: str):
         ws_connections[task_id] = []
     ws_connections[task_id].append(websocket)
 
-    # Immediately push current state if available
     if task_id in active_tasks:
         await websocket.send_json(active_tasks[task_id])
 
     try:
         while True:
-            # Keep-alive receive
             await websocket.receive_text()
     except WebSocketDisconnect:
         if task_id in ws_connections and websocket in ws_connections[task_id]:
@@ -721,14 +945,15 @@ if __name__ == "__main__":
 
     port = 8000
     url = f"http://127.0.0.1:{port}"
+    cookie_path = get_cookie_file_path()
     print(f"==================================================")
     print(f"  ULTRA-TUBE 4K STUDIO - YOUTUBE 4K DOWNLOADER")
     print(f"  Starting local server at: {url}")
     print(f"  Downloads saved to: {DOWNLOADS_DIR}")
     print(f"  FFmpeg location: {FFMPEG_EXE}")
+    print(f"  Anti-Bot Protection: {'Cookies Active (' + str(cookie_path) + ')' if cookie_path else 'Multi-Client EJS Solver Active'}")
     print(f"==================================================")
 
-    # Open browser automatically after a short delay
     def open_browser():
         time.sleep(1.2)
         webbrowser.open(url)
