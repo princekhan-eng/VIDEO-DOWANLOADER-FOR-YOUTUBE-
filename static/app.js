@@ -16,7 +16,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const errorBanner = document.getElementById('error-banner');
   const errorTitle = document.getElementById('error-title');
   const errorMessage = document.getElementById('error-message');
+  const errorActions = document.getElementById('error-actions');
   const btnCloseError = document.getElementById('btn-close-error');
+  const btnFixCookies = document.getElementById('btn-fix-cookies');
+
+  // Cookie & Anti-Bot Modal Elements
+  const btnCookieSettings = document.getElementById('btn-cookie-settings');
+  const cookieModal = document.getElementById('cookie-modal');
+  const btnCloseCookieModal = document.getElementById('btn-close-cookie-modal');
+  const navCookieBadge = document.getElementById('nav-cookie-badge');
+  const cookieStatusDot = document.getElementById('cookie-status-dot');
+  const cookieStatusTitle = document.getElementById('cookie-status-title');
+  const cookieStatusDesc = document.getElementById('cookie-status-desc');
+  const btnTestConnection = document.getElementById('btn-test-connection');
+  const cookieTextarea = document.getElementById('cookie-textarea');
+  const fileCookieUpload = document.getElementById('file-cookie-upload');
+  const btnSaveCookies = document.getElementById('btn-save-cookies');
+  const btnClearCookies = document.getElementById('btn-clear-cookies');
+  const testResultBox = document.getElementById('test-result-box');
+  const testResultTitle = document.getElementById('test-result-title');
+  const testResultDetails = document.getElementById('test-result-details');
+  const testIcon = document.getElementById('test-icon');
 
   // Media Analysis Card
   const mediaCard = document.getElementById('media-card');
@@ -73,8 +93,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let selectedFormat = '4k';
   let activeWebSocket = null;
 
-  // Initialize History
+  // Initialize
   fetchHistory();
+  checkCookieStatus();
 
   // Input Clear Button Toggle
   inputUrl.addEventListener('input', () => {
@@ -125,6 +146,12 @@ document.addEventListener('DOMContentLoaded', () => {
     errorBanner.classList.add('hidden');
   });
 
+  if (btnFixCookies) {
+    btnFixCookies.addEventListener('click', () => {
+      openCookieModal();
+    });
+  }
+
   // Tab Switching
   tabVideo.addEventListener('click', () => {
     tabVideo.classList.add('active');
@@ -158,7 +185,168 @@ document.addEventListener('DOMContentLoaded', () => {
     inputUrl.select();
   });
 
-  // Analyze URL Function
+  // =========================================================================
+  // Anti-Bot & Cookie Modal Logic
+  // =========================================================================
+  function openCookieModal() {
+    cookieModal.classList.remove('hidden');
+    checkCookieStatus();
+  }
+
+  function closeCookieModal() {
+    cookieModal.classList.add('hidden');
+  }
+
+  btnCookieSettings.addEventListener('click', openCookieModal);
+  btnCloseCookieModal.addEventListener('click', closeCookieModal);
+  cookieModal.addEventListener('click', (e) => {
+    if (e.target === cookieModal) closeCookieModal();
+  });
+
+  // Modal Tabs switching
+  document.querySelectorAll('.modal-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
+
+      tab.classList.add('active');
+      const targetId = tab.getAttribute('data-tab');
+      const targetContent = document.getElementById(targetId);
+      if (targetContent) targetContent.classList.add('active');
+    });
+  });
+
+  // File upload reader for cookies.txt
+  if (fileCookieUpload) {
+    fileCookieUpload.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        cookieTextarea.value = ev.target.result;
+        showToast(`Loaded ${file.name} (${file.size} bytes)`, 'success');
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  // Check Cookie Status API
+  async function checkCookieStatus() {
+    try {
+      const res = await fetch('/api/cookies/status');
+      const data = await res.json();
+      if (res.ok) {
+        if (data.has_cookies) {
+          cookieStatusDot.className = 'status-indicator-dot dot-green';
+          navCookieBadge.className = 'cookie-dot-badge badge-active';
+          navCookieBadge.title = 'Anti-Bot Cookies Active';
+          cookieStatusTitle.textContent = 'Active (Anti-Bot Authenticated)';
+          cookieStatusDesc.textContent = `Custom cookies active (${data.cookie_size_bytes || 0} bytes). Full 4K & Cloud bypass active.`;
+        } else {
+          cookieStatusDot.className = 'status-indicator-dot dot-amber';
+          navCookieBadge.className = 'cookie-dot-badge badge-fallback';
+          navCookieBadge.title = 'Multi-Client EJS Solver Active';
+          cookieStatusTitle.textContent = 'Multi-Client EJS Solver Active';
+          cookieStatusDesc.textContent = data.message || 'Auto-solving bot challenges with Node.js & Multi-Client engine.';
+        }
+      }
+    } catch (e) {
+      console.warn('Cookie status check failed:', e);
+    }
+  }
+
+  // Save Cookies API
+  btnSaveCookies.addEventListener('click', async () => {
+    const cookiesText = cookieTextarea.value.trim();
+    if (!cookiesText) {
+      showToast('Please paste your cookie text or upload a cookies.txt file.', 'error');
+      return;
+    }
+
+    btnSaveCookies.disabled = true;
+    try {
+      const res = await fetch('/api/cookies/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookies_text: cookiesText }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast(data.message || 'Cookies saved & activated successfully!', 'success');
+        checkCookieStatus();
+      } else {
+        showToast(data.detail || 'Failed to save cookies.', 'error');
+      }
+    } catch (err) {
+      showToast('Error communicating with server.', 'error');
+    } finally {
+      btnSaveCookies.disabled = false;
+    }
+  });
+
+  // Clear Cookies API
+  btnClearCookies.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to remove your saved YouTube cookies?')) return;
+    try {
+      const res = await fetch('/api/cookies/clear', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        cookieTextarea.value = '';
+        showToast(data.message || 'Cookies removed.', 'success');
+        checkCookieStatus();
+      } else {
+        showToast(data.detail || 'Could not clear cookies.', 'error');
+      }
+    } catch (err) {
+      showToast('Error communicating with server.', 'error');
+    }
+  });
+
+  // Test Connection API
+  btnTestConnection.addEventListener('click', async () => {
+    btnTestConnection.disabled = true;
+    btnTestConnection.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Testing...';
+    testResultBox.classList.add('hidden');
+
+    try {
+      const res = await fetch('/api/cookies/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: 'https://www.youtube.com/watch?v=LXb3EKWsInQ' }),
+      });
+      const data = await res.json();
+
+      testResultBox.classList.remove('hidden');
+      if (data.success) {
+        testResultBox.className = 'test-result-box test-success';
+        testIcon.className = 'fa-solid fa-circle-check';
+        testResultTitle.textContent = 'Connection Verified! YouTube Bot Check Bypassed';
+        testResultDetails.textContent = `Successfully verified video "${data.title}". Max resolution: ${data.max_resolution} (4K UHD: ${data.has_4k ? 'Yes' : 'No'}). Ready for lossless downloads!`;
+        showToast('Connection verified successfully!', 'success');
+        checkCookieStatus();
+      } else {
+        testResultBox.className = 'test-result-box test-failure';
+        testIcon.className = 'fa-solid fa-triangle-exclamation';
+        testResultTitle.textContent = 'Verification Failed';
+        testResultDetails.textContent = data.message || data.error || 'YouTube returned a verification challenge. Try pasting fresh cookies in Tab 1.';
+        showToast('Verification failed. Check test details.', 'error');
+      }
+    } catch (err) {
+      testResultBox.classList.remove('hidden');
+      testResultBox.className = 'test-result-box test-failure';
+      testIcon.className = 'fa-solid fa-triangle-exclamation';
+      testResultTitle.textContent = 'Server Error';
+      testResultDetails.textContent = 'Could not contact verification endpoint: ' + err.message;
+      showToast('Test failed to complete.', 'error');
+    } finally {
+      btnTestConnection.disabled = false;
+      btnTestConnection.innerHTML = '<i class="fa-solid fa-bolt"></i> Test Connection';
+    }
+  });
+
+  // =========================================================================
+  // Media Analysis Function
+  // =========================================================================
   async function analyzeUrl(url) {
     hideError();
     mediaCard.classList.add('hidden');
@@ -177,7 +365,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to extract video information.');
+        let msg = 'Failed to extract video information.';
+        let needsCookies = false;
+        if (typeof data.detail === 'object' && data.detail !== null) {
+          msg = data.detail.message || msg;
+          needsCookies = data.detail.needs_cookies || false;
+        } else if (typeof data.detail === 'string') {
+          msg = data.detail;
+          needsCookies = msg.toLowerCase().includes('bot') || msg.toLowerCase().includes('sign in');
+        }
+        const err = new Error(msg);
+        err.needsCookies = needsCookies;
+        throw err;
       }
 
       currentMediaData = data;
@@ -190,7 +389,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       showToast('Media analyzed successfully!', 'success');
     } catch (err) {
-      showError('Analysis Failed', err.message || 'Could not fetch video info.');
+      showError('Analysis Failed', err.message || 'Could not fetch video info.', err.needsCookies);
     } finally {
       setLoading(false);
     }
@@ -265,7 +464,6 @@ document.addEventListener('DOMContentLoaded', () => {
       audioFormatsGrid.appendChild(card);
     });
 
-    // Default select first video preset (4K)
     if (videoPresets.length > 0) {
       const defaultPreset = videoPresets[0];
       updateSelectedFormat(defaultPreset.id, defaultPreset.badge, defaultPreset.name, defaultPreset.description);
@@ -334,7 +532,6 @@ document.addEventListener('DOMContentLoaded', () => {
     completedActions.classList.add('hidden');
     progressCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-    // Reset Progress bar
     progressBarFill.style.width = '0%';
     statPercent.textContent = '0%';
     statSpeed.textContent = 'Connecting...';
@@ -420,7 +617,6 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       activeWebSocket.onclose = () => {
-        // If closed prematurely and not finished, use polling
         startPollingProgress(taskId);
       };
     } catch (e) {
@@ -553,15 +749,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function showError(title, message) {
+  function showError(title, message, needsCookies = false) {
     errorTitle.textContent = title;
     errorMessage.textContent = message;
+    if (errorActions) {
+      errorActions.classList.toggle('hidden', !needsCookies);
+    }
     errorBanner.classList.remove('hidden');
     errorBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   function hideError() {
     errorBanner.classList.add('hidden');
+    if (errorActions) errorActions.classList.add('hidden');
   }
 
   function showToast(message, type = 'success') {

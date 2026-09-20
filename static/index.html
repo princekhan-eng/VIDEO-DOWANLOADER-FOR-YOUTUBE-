@@ -40,6 +40,11 @@
       </div>
 
       <div class="nav-actions">
+        <button id="btn-cookie-settings" class="btn btn-secondary btn-sm" title="Manage YouTube Cookies & Anti-Bot Bypass">
+          <i class="fa-solid fa-shield-halved"></i>
+          <span>Anti-Bot / Cookies</span>
+          <span id="nav-cookie-badge" class="cookie-dot-badge"></span>
+        </button>
         <button id="btn-open-folder" class="btn btn-secondary btn-sm" title="Open Downloads Folder on PC">
           <i class="fa-regular fa-folder-open"></i>
           <span>Open Folder</span>
@@ -118,6 +123,11 @@
       <div class="error-content">
         <h4 id="error-title">Analysis Failed</h4>
         <p id="error-message">Please ensure the YouTube link is valid and public.</p>
+        <div id="error-actions" class="error-actions hidden">
+          <button type="button" id="btn-fix-cookies" class="btn btn-primary btn-xs">
+            <i class="fa-solid fa-shield-halved"></i> Fix YouTube Bot Check (Add Cookies)
+          </button>
+        </div>
       </div>
       <button id="btn-close-error" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
     </div>
@@ -280,9 +290,9 @@
         <p>Extract pristine 320kbps MP3 or native lossless M4A AAC audio effortlessly.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon feature-teal"><i class="fa-solid fa-gauge-high"></i></div>
-        <h3>Ultra-Fast Multi-Threaded</h3>
-        <p>Accelerated multi-connection downloading with live real-time speed & ETA tracking.</p>
+        <div class="feature-icon feature-teal"><i class="fa-solid fa-shield-halved"></i></div>
+        <h3>Anti-Bot &amp; Multi-Client</h3>
+        <p>Built-in EJS challenge solver and cookie management for local &amp; cloud deployments.</p>
       </div>
     </section>
 
@@ -310,6 +320,128 @@
     </section>
 
   </main>
+
+  <!-- Anti-Bot / Cookie Settings Modal -->
+  <div id="cookie-modal" class="modal-backdrop hidden">
+    <div class="modal-dialog glass-panel">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="modal-icon"><i class="fa-solid fa-shield-halved"></i></div>
+          <div>
+            <h3 class="modal-title">Anti-Bot &amp; Cookie Manager</h3>
+            <p class="modal-subtitle">Bypass YouTube bot checks on both local machine &amp; live Vercel deployments</p>
+          </div>
+        </div>
+        <button id="btn-close-cookie-modal" class="btn-close-modal" title="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Status Card -->
+        <div class="auth-status-card" id="cookie-status-card">
+          <div class="status-icon-wrap">
+            <span class="status-indicator-dot dot-gray" id="cookie-status-dot"></span>
+          </div>
+          <div class="status-text-wrap">
+            <span class="status-title" id="cookie-status-title">Checking Authentication Status...</span>
+            <span class="status-desc" id="cookie-status-desc">Verifying connection to YouTube backend</span>
+          </div>
+          <button id="btn-test-connection" class="btn btn-secondary btn-xs">
+            <i class="fa-solid fa-bolt"></i> Test Connection
+          </button>
+        </div>
+
+        <!-- Tab Nav -->
+        <div class="modal-tabs">
+          <button class="modal-tab active" data-tab="tab-paste-cookie">
+            <i class="fa-solid fa-cookie-bite"></i> Paste / Upload Cookies
+          </button>
+          <button class="modal-tab" data-tab="tab-guide-cookie">
+            <i class="fa-solid fa-circle-question"></i> How to Export (1-Min)
+          </button>
+          <button class="modal-tab" data-tab="tab-cloud-cookie">
+            <i class="fa-solid fa-cloud"></i> Live Vercel Setup
+          </button>
+        </div>
+
+        <!-- Tab 1: Paste/Upload -->
+        <div class="modal-tab-content active" id="tab-paste-cookie">
+          <div class="cookie-input-group">
+            <div class="cookie-label-row">
+              <label for="cookie-textarea" class="cookie-label">Paste Netscape / YouTube Cookies (txt format):</label>
+              <label class="btn-file-upload">
+                <i class="fa-solid fa-file-arrow-up"></i> Upload cookies.txt
+                <input type="file" id="file-cookie-upload" accept=".txt" style="display:none;">
+              </label>
+            </div>
+            <textarea 
+              id="cookie-textarea" 
+              placeholder="# Netscape HTTP Cookie File&#10;# Exported from your browser for youtube.com&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;1780000000&#9;LOGIN_INFO&#9;...&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;1780000000&#9;SAPISID&#9;..."
+              rows="6"
+            ></textarea>
+          </div>
+
+          <div class="modal-actions-row">
+            <button id="btn-save-cookies" class="btn btn-primary btn-sm">
+              <i class="fa-solid fa-floppy-disk"></i> Save &amp; Activate Cookies
+            </button>
+            <button id="btn-clear-cookies" class="btn btn-outline btn-sm">
+              <i class="fa-solid fa-trash-can"></i> Remove Saved Cookies
+            </button>
+          </div>
+
+          <!-- Test Result Box -->
+          <div id="test-result-box" class="test-result-box hidden">
+            <div class="test-header">
+              <i class="fa-solid fa-circle-check" id="test-icon"></i>
+              <span id="test-result-title">Test Passed!</span>
+            </div>
+            <p id="test-result-details">YouTube bot check passed. Available resolutions: 4K (2160p), 1440p, 1080p.</p>
+          </div>
+        </div>
+
+        <!-- Tab 2: Guide -->
+        <div class="modal-tab-content" id="tab-guide-cookie">
+          <div class="guide-steps">
+            <div class="guide-step">
+              <span class="step-num">1</span>
+              <div>
+                <strong>Install Browser Extension</strong>
+                <p>Install free extension <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" rel="noopener">Get cookies.txt locally</a> (Chrome/Edge/Brave) or <a href="https://addons.mozilla.org/en-US/firefox/addon/cookie-editor/" target="_blank" rel="noopener">Cookie-Editor</a> (Firefox).</p>
+              </div>
+            </div>
+            <div class="guide-step">
+              <span class="step-num">2</span>
+              <div>
+                <strong>Open YouTube &amp; Export</strong>
+                <p>Go to <a href="https://www.youtube.com" target="_blank" rel="noopener">youtube.com</a> while signed in, click the extension icon in your browser toolbar, and click <strong>"Export as Netscape / Copy"</strong>.</p>
+              </div>
+            </div>
+            <div class="guide-step">
+              <span class="step-num">3</span>
+              <div>
+                <strong>Paste &amp; Save</strong>
+                <p>Switch back to this dialog, paste into the box in <em>Tab 1</em>, and click <strong>"Save &amp; Activate Cookies"</strong>. You're set forever!</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Cloud / Vercel Setup -->
+        <div class="modal-tab-content" id="tab-cloud-cookie">
+          <div class="cloud-instructions">
+            <p>To deploy UltraTube 4K Studio on <strong>Vercel, Render, Railway, or VPS</strong> without YouTube blocking datacenter IPs:</p>
+            <ol>
+              <li>Go to your <strong>Vercel Project Dashboard &rarr; Settings &rarr; Environment Variables</strong>.</li>
+              <li>Add a new variable named <code>YOUTUBE_COOKIES_CONTENT</code>.</li>
+              <li>Paste the full contents of your exported <code>cookies.txt</code> into the Value field.</li>
+              <li>Redeploy the project. The cloud server will automatically authenticate every request without bot challenges!</li>
+            </ol>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
 
   <!-- Toast Notification Container -->
   <div id="toast-container" class="toast-container"></div>
